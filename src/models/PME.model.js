@@ -10,14 +10,21 @@ const pmeSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: [true, 'L\'email est requis'],
+    required: function() {
+      // Email requis uniquement si pas de genuka_id
+      return !this.genuka_id;
+    },
     unique: true,
+    sparse: true,
     lowercase: true,
     match: [/^\S+@\S+\.\S+$/, 'Veuillez fournir un email valide']
   },
   password: {
     type: String,
-    required: [true, 'Le mot de passe est requis'],
+    required: function() {
+      // Password requis uniquement si pas de genuka_id
+      return !this.genuka_id;
+    },
     minlength: [6, 'Le mot de passe doit contenir au moins 6 caractères'],
     select: false
   },
@@ -92,16 +99,14 @@ const pmeSchema = new mongoose.Schema({
 });
 
 // Middleware de pré-sauvegarde pour hacher le mot de passe
-pmeSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  try {
-    const salt = await bcrypt.genSalt(12);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
+pmeSchema.pre('save', async function() {
+  // Si password n'existe pas ou n'a pas été modifié, ne rien faire
+  if (!this.password || !this.isModified('password')) {
+    return;
   }
+  
+  const salt = await bcrypt.genSalt(12);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
 // Méthode pour comparer les mots de passe

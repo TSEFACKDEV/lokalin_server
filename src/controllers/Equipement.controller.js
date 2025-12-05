@@ -50,10 +50,11 @@ export const createEquipement = async (req, res) => {
       console.error('[Equipement Creation] Type de l\'ID:', typeof proprietaire);
       console.error('[Equipement Creation] IDs disponibles:', allPmes.map(p => p._id.toString()));
       
-      return ResponseApi.error(res, 'PME propriétaire non trouvée', { 
+      return ResponseApi.error(res, `PME propriétaire non trouvée. L'ID "${proprietaire}" n'existe pas dans la base de données.`, { 
         proprietaire_recherche: proprietaire,
-        pmes_disponibles: allPmes.map(p => ({ id: p._id, nom: p.nom })),
-        total_pmes: allPmes.length
+        pmes_disponibles: allPmes.map(p => ({ id: p._id.toString(), nom: p.nom })),
+        total_pmes: allPmes.length,
+        suggestion: allPmes.length > 0 ? `Utilisez l'ID: ${allPmes[0]._id.toString()}` : 'Créez d\'abord une PME'
       }, 404);
     }
     

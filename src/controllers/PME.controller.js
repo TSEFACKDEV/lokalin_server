@@ -7,35 +7,59 @@ import PME from '../models/PME.model.js';
 import ResponseApi from '../helpers/response.js';
 import NotificationService from '../services/NotificationService.js';
 import GenukaService from '../services/GenukaService.js';
+import { logGenukaSynchronization, logTokenRefresh } from '../utils/genukaLogger.js';
 
 /**
  * Créer une PME avec Genuka
  */
 export const createPME = async (req, res) => {
   try {
-    const { nom, email, genuka_id, genuka_access_token, genuka_refresh_token, genuka_token_expires_at } = req.body;
+    const { nom, email, genuka_id, genuka_access_token, genuka_refresh_token, genuka_token_expires_at, password } = req.body;
 
-    if (!nom || !email || !genuka_id) {
-      return ResponseApi.error(res, 'Données manquantes', { nom, email, genuka_id }, 400);
+    // Validation différente selon si c'est une PME Genuka ou locale
+    if (genuka_id) {
+      // PME Genuka : nom et genuka_id requis
+      if (!nom || !genuka_id) {
+        return ResponseApi.error(res, 'Données manquantes pour PME Genuka', { nom, genuka_id }, 400);
+      }
+    } else {
+      // PME locale : nom, email et password requis
+      if (!nom || !email || !password) {
+        return ResponseApi.error(res, 'Données manquantes pour PME locale', { nom, email, password: !!password }, 400);
+      }
     }
 
     // Vérifier si la PME existe déjà
-    const existingPME = await PME.findOne({ $or: [{ email }, { genuka_id }] });
+    const existingPME = await PME.findOne({ 
+      $or: [
+        { email: email },
+        { genuka_id: genuka_id }
+      ].filter(condition => Object.values(condition)[0]) // Filtrer les valeurs nulles/undefined
+    });
+    
     if (existingPME) {
       return ResponseApi.error(res, 'Cette PME existe déjà', null, 409);
     }
 
     // Créer la PME
-    const pme = await PME.create({
+    const pmeData = {
       nom,
-      email,
-      genuka_id,
-      genuka_access_token,
-      genuka_refresh_token,
-      genuka_token_expires_at,
-      isVerified: true,
+      isVerified: !!genuka_id, // Auto-vérifié si Genuka
       isActive: true
-    });
+    };
+
+    if (genuka_id) {
+      pmeData.genuka_id = genuka_id;
+      pmeData.genuka_access_token = genuka_access_token;
+      pmeData.genuka_refresh_token = genuka_refresh_token;
+      pmeData.genuka_token_expires_at = genuka_token_expires_at;
+      pmeData.email = email || `company-${genuka_id}@genuka.temp`;
+    } else {
+      pmeData.email = email;
+      pmeData.password = password;
+    }
+
+    const pme = await PME.create(pmeData);
 
     // Notifier la création
     NotificationService.broadcastNotification(
@@ -214,7 +238,22 @@ export const verifyAndRefreshToken = async (pmeId) => {
         pme.genuka_token_expires_at = new Date(Date.now() + result.expires_in * 1000);
         await pme.save();
         
+        // Logger le rafraîchissement
+        logTokenRefresh({
+          company_id: pme.genuka_id,
+          pme_id: pmeId,
+          success: true
+        });
+        
         return pme.genuka_access_token;
+      } else {
+        // Logger l'échec
+        logTokenRefresh({
+          company_id: pme.genuka_id,
+          pme_id: pmeId,
+          success: false,
+          error: result.error
+        });
       }
     }
 
@@ -225,6 +264,104 @@ export const verifyAndRefreshToken = async (pmeId) => {
   }
 };
 
+/**
+ * Synchroniser les données Genuka d'une PME
+ */
+export const syncGenukaData = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const pme = await PME.findById(id).select('+genuka_access_token');
+    if (!pme) {
+      return ResponseApi.notFound(res, 'PME non trouvée');
+    }
+
+    if (!pme.genuka_id) {
+      return ResponseApi.error(res, 'Cette PME n\'est pas liée à Genuka', null, 400);
+    }
+
+    // Vérifier et rafraîchir le token si nécessaire
+    const accessToken = await verifyAndRefreshToken(id);
+    if (!accessToken) {
+      return ResponseApi.error(res, 'Impossible de récupérer le token d\'accès', null, 401);
+    }
+
+    // Récupérer les informations de la boutique
+    const storeInfoResult = await GenukaService.getStoreInfo(accessToken, pme.genuka_id);
+    
+    if (!storeInfoResult.success) {
+      return ResponseApi.error(res, 'Erreur lors de la récupération des infos Genuka', storeInfoResult.error);
+    }
+
+    const storeInfo = storeInfoResult.data;
+
+    // Mettre à jour les informations de la PME
+    if (storeInfo.name && pme.nom.startsWith('PME ')) {
+      pme.nom = storeInfo.name;
+    }
+    if (storeInfo.description) {
+      pme.description = storeInfo.description;
+    }
+    if (storeInfo.email && pme.email && pme.email.includes('@genuka.temp')) {
+      pme.email = storeInfo.email;
+    }
+    if (storeInfo.phone) {
+      pme.telephone = storeInfo.phone;
+    }
+    if (storeInfo.website) {
+      pme.siteWeb = storeInfo.website;
+    }
+    if (storeInfo.address) {
+      pme.adresse = {
+        rue: storeInfo.address.street || pme.adresse?.rue,
+        ville: storeInfo.address.city || pme.adresse?.ville,
+        codePostal: storeInfo.address.postal_code || pme.adresse?.codePostal,
+        pays: storeInfo.address.country || pme.adresse?.pays || 'France'
+      };
+    }
+    if (storeInfo.logo) {
+      pme.logo = storeInfo.logo;
+    }
+
+    await pme.save();
+
+    // Logger la synchronisation
+    const fieldsUpdated = [];
+    if (storeInfo.name) fieldsUpdated.push('nom');
+    if (storeInfo.description) fieldsUpdated.push('description');
+    if (storeInfo.email) fieldsUpdated.push('email');
+    if (storeInfo.phone) fieldsUpdated.push('telephone');
+    if (storeInfo.website) fieldsUpdated.push('siteWeb');
+    if (storeInfo.address) fieldsUpdated.push('adresse');
+    if (storeInfo.logo) fieldsUpdated.push('logo');
+
+    logGenukaSynchronization({
+      company_id: pme.genuka_id,
+      pme_id: id,
+      fields_updated: fieldsUpdated,
+      success: true
+    });
+
+    ResponseApi.success(res, 'Données Genuka synchronisées avec succès', {
+      pme,
+      genukaData: storeInfo
+    });
+  } catch (error) {
+    console.error('Erreur synchronisation Genuka:', error);
+    
+    // Logger l'erreur
+    logGenukaSynchronization({
+      company_id: req.params.id,
+      pme_id: req.params.id,
+      fields_updated: [],
+      success: false,
+      error: error.message
+    });
+    
+    ResponseApi.error(res, 'Échec de la synchronisation Genuka', error.message);
+  }
+};
+
 export default {
   createPME,
   getPMEs,
@@ -232,5 +369,6 @@ export default {
   updatePME,
   deletePME,
   getPMEEquipements,
-  verifyAndRefreshToken
+  verifyAndRefreshToken,
+  syncGenukaData
 };

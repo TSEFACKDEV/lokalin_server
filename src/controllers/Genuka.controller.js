@@ -3,15 +3,16 @@ import env from '../config/env.js';
 import ResponseApi from '../helpers/response.js';
 import PME from '../models/PME.model.js';
 import GenukaService from '../services/GenukaService.js';
+import { logGenukaInstallation, logHmacValidationFailure } from '../utils/genukaLogger.js';
 
 const MAX_AGE_SECONDS = 600; // 10 minutes - Temporaire pour développement (réduire à 300 en production)
 
 /**
  * Valider la signature HMAC envoyée par Genuka
- * C'est OBLIGATOIRE avant de traiter le callback
  * 
- * IMPORTANT: Genuka calcule le HMAC avec la query string BRUTE (non décodée)
- * On doit extraire tous les paramètres sauf 'hmac' de la query string originale
+ * IMPORTANT: Genuka calcule le HMAC avec TOUS les paramètres (sauf hmac) dans l'ordre de l'URL
+ * La documentation officielle simplifie l'exemple, mais en réalité Genuka utilise:
+ * code=xxx&company_id=xxx&redirect_to=xxx&timestamp=xxx (sans le paramètre hmac)
  */
 function validateHmac({ hmac: receivedHmac, timestamp, companyId, rawQueryString }) {
   if (!receivedHmac || !timestamp || !companyId) {
@@ -28,13 +29,6 @@ function validateHmac({ hmac: receivedHmac, timestamp, companyId, rawQueryString
     return false;
   }
 
-  // 2. Extraire tous les paramètres sauf 'hmac' de la query string brute
-  // IMPORTANT: Garder l'ordre original de l'URL et les valeurs NON décodées
-  const queryParts = rawQueryString.split('&');
-  const paramsWithoutHmac = queryParts.filter(part => !part.startsWith('hmac='));
-  const stringToHash = paramsWithoutHmac.join('&');
-
-  // 3. Calculer le HMAC using GENUKA_CLIENT_SECRET depuis env.js
   const secret = env.genuka.clientSecret || '';
   
   if (!secret) {
@@ -42,6 +36,11 @@ function validateHmac({ hmac: receivedHmac, timestamp, companyId, rawQueryString
     return false;
   }
 
+  // 2. Extraire tous les paramètres sauf 'hmac' en gardant l'ordre original de l'URL
+  const queryParts = rawQueryString.split('&').filter(part => !part.startsWith('hmac='));
+  const stringToHash = queryParts.join('&');
+
+  // 3. Calculer le HMAC using GENUKA_CLIENT_SECRET
   const computedHmac = crypto
     .createHmac('sha256', secret)
     .update(stringToHash)
@@ -49,7 +48,7 @@ function validateHmac({ hmac: receivedHmac, timestamp, companyId, rawQueryString
 
   console.info('[HMAC Validator] Configuration:');
   console.info('  CLIENT_SECRET length:', secret.length);
-  console.info('  String to hash:', stringToHash);
+  console.info('  String to hash:', stringToHash.substring(0, 100) + (stringToHash.length > 100 ? '...' : ''));
   console.info('  Computed HMAC:', computedHmac);
   console.info('  Received HMAC:', receivedHmac);
   console.info('  Match:', computedHmac === receivedHmac ? '✅ YES' : '❌ NO');
@@ -67,6 +66,7 @@ function validateHmac({ hmac: receivedHmac, timestamp, companyId, rawQueryString
       console.error('[HMAC Validator] ❌ HMAC MISMATCH');
       console.error('  Computed:', computedHmac);
       console.error('  Received:', receivedHmac);
+      console.error('  → Vérifiez votre GENUKA_CLIENT_SECRET dans .env');
     }
     
     return isValid;
@@ -137,6 +137,16 @@ export const handleGenuka = async (req, res) => {
       console.warn('  2. Genuka regenerated the secret in dashboard');
       console.warn('  3. Request from unauthorized source');
       console.warn('[Genuka Callback] Rejecting request with 401');
+      
+      // Logger l'échec de validation HMAC
+      logHmacValidationFailure({
+        company_id: company_id,
+        timestamp: timestamp,
+        hmac: hmac,
+        ip: req.ip || req.connection.remoteAddress,
+        user_agent: req.get('user-agent')
+      });
+      
       return res.status(401).json({
         error: 'HMAC invalide',
         message: 'La requête ne provient pas de Genuka. Vérifiez le CLIENT_SECRET dans le dashboard Genuka.'
@@ -166,13 +176,29 @@ export const handleGenuka = async (req, res) => {
 
     console.debug('[Genuka] Access token received successfully');
 
-    // 4. CRÉER OU METTRE À JOUR LA PME
+    // 4. RÉCUPÉRER LES INFORMATIONS DE L'UTILISATEUR DEPUIS GENUKA
+    console.debug('[Genuka] Fetching user info from Genuka');
+    const userInfoResponse = await GenukaService.getUserInfo(tokenResponse.access_token);
+    
+    let userEmail = null;
+    let userName = null;
+    
+    if (userInfoResponse.success) {
+      userEmail = userInfoResponse.data.email;
+      userName = userInfoResponse.data.name;
+      console.debug('[Genuka] User info retrieved:', { email: userEmail, name: userName });
+    } else {
+      console.warn('[Genuka] Failed to fetch user info, will use defaults');
+    }
+
+    // 5. CRÉER OU METTRE À JOUR LA PME
     let pme = await PME.findOne({ genuka_id: company_id });
 
     if (!pme) {
       console.debug('[Genuka] Creating new PME entry');
       pme = await PME.create({
-        nom: `PME ${company_id.substring(0, 8)}`,
+        nom: userName || `PME ${company_id.substring(0, 8)}`,
+        email: userEmail || `company-${company_id}@genuka.temp`,
         genuka_id: company_id,
         genuka_access_token: tokenResponse.access_token,
         genuka_refresh_token: tokenResponse.refresh_token || null,
@@ -183,7 +209,7 @@ export const handleGenuka = async (req, res) => {
         isActive: true,
         lastLogin: new Date()
       });
-      console.info('[Genuka] PME created:', pme._id);
+      console.info('[Genuka] PME created:', pme._id, 'company_id:', company_id);
     } else {
       console.debug('[Genuka] Updating existing PME');
       pme.genuka_access_token = tokenResponse.access_token;
@@ -193,16 +219,33 @@ export const handleGenuka = async (req, res) => {
       if (tokenResponse.expires_in) {
         pme.genuka_token_expires_at = new Date(Date.now() + tokenResponse.expires_in * 1000);
       }
+      if (userEmail && !pme.email) {
+        pme.email = userEmail;
+      }
+      if (userName && pme.nom.startsWith('PME ')) {
+        pme.nom = userName;
+      }
       pme.lastLogin = new Date();
       await pme.save();
-      console.info('[Genuka] PME updated successfully');
+      console.info('[Genuka] PME updated successfully, company_id:', company_id);
     }
 
-    // 5. REDIRIGER VERS GENUKA AVEC L'URL redirect_to
+    // Logger l'installation réussie
+    logGenukaInstallation({
+      company_id: company_id,
+      pme_id: pme._id.toString(),
+      user_email: userEmail,
+      user_name: userName,
+      success: true
+    });
+
+    // 6. REDIRIGER VERS GENUKA AVEC L'URL redirect_to
     // C'est IMPORTANT : on doit rediriger vers l'URL fournie par Genuka
     if (redirect_to) {
-      console.debug('[Genuka] Redirecting to:', redirect_to);
-      res.redirect(redirect_to);
+      // IMPORTANT: Le redirect_to peut être URL-encodé, il faut le décoder
+      const decodedRedirectUrl = decodeURIComponent(redirect_to);
+      console.debug('[Genuka] Redirecting to:', decodedRedirectUrl);
+      res.redirect(decodedRedirectUrl);
     } else {
       // Fallback si redirect_to est absent
       console.warn('[Genuka] No redirect_to provided - Using fallback success response');
@@ -216,6 +259,17 @@ export const handleGenuka = async (req, res) => {
 
   } catch (error) {
     console.error('[Genuka] Callback processing error:', error);
+    
+    // Logger l'erreur
+    logGenukaInstallation({
+      company_id: req.query.company_id,
+      pme_id: null,
+      user_email: null,
+      user_name: null,
+      success: false,
+      error: error.message
+    });
+    
     res.status(500).json({
       error: 'Erreur lors du traitement du callback',
       message: error.message

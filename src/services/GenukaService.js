@@ -5,11 +5,23 @@
 
 import env from '../config/env.js';
 
-// IMPORTANT: OAuth est CENTRALISÉ sur l'API de PRODUCTION même pour staging!
-// Les API calls utilisent api-staging, mais OAuth utilise TOUJOURS api.genuka.com
-const GENUKA_API_BASE = 'https://api-staging.genuka.com/2023-11';
-const GENUKA_OAUTH_TOKEN_URL = 'https://api.genuka.com/oauth/2023-11/token';
-const GENUKA_OAUTH_USERINFO_URL = 'https://platform.genuka.com/oauth/userinfo';
+// Configuration des endpoints Genuka
+// IMPORTANT: Utilisez staging si votre app est enregistrée dans l'environnement staging de Genuka
+const IS_STAGING = true; // Changez à false si vous êtes en production
+
+const GENUKA_API_BASE = IS_STAGING 
+  ? 'https://api-staging.genuka.com/2023-11' 
+  : 'https://api.genuka.com/2023-11';
+
+// OAuth endpoints - CONFIRMÉ par test: /oauth/token (SANS /2023-11)
+const GENUKA_OAUTH_TOKEN_URL = IS_STAGING
+  ? 'https://api-staging.genuka.com/oauth/token'
+  : 'https://api.genuka.com/oauth/token';
+
+// L'endpoint userinfo est sur l'API, pas sur platform/staging
+const GENUKA_OAUTH_USERINFO_URL = IS_STAGING
+  ? 'https://api-staging.genuka.com/oauth/userinfo'
+  : 'https://api.genuka.com/oauth/userinfo';
 
 class GenukaService {
   /**
@@ -20,7 +32,6 @@ class GenukaService {
     try {
       const clientId = env.genuka.clientId;
       const clientSecret = env.genuka.clientSecret;
-      // CRITICAL: Utiliser GENUKA_CALLBACK_URL de .env (pas reconstruit dynamiquement)
       const redirectUri = env.genuka.callbackUrl;
 
       console.log('🔄 Échange du code pour un token...');
@@ -48,7 +59,6 @@ class GenukaService {
       });
 
       console.log('[GenukaService] Response status:', response.status);
-      console.log('[GenukaService] Response headers:', Object.fromEntries(response.headers.entries()));
 
       const contentType = response.headers.get('content-type');
       let data;
@@ -63,10 +73,10 @@ class GenukaService {
 
       if (!response.ok) {
         console.error('[GenukaService] HTTP error:', response.status, data);
-        throw new Error(`Erreur HTTP: ${response.status} - ${JSON.stringify(data)}`);
+        throw new Error(`Erreur HTTP: ${response.status} - ${data.error || JSON.stringify(data)}`);
       }
 
-      console.debug('[GenukaService] Token received successfully');
+      console.log('[GenukaService] ✅ Token received successfully');
       return {
         success: true,
         access_token: data.access_token,

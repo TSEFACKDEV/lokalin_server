@@ -26,4 +26,7 @@ router.delete('/:id', PMEController.deletePME);
 // GET - Récupérer les équipements d'une PME
 router.get('/:id/equipements', PMEController.getPMEEquipements);
 
+// POST - Synchroniser les données Genuka d'une PME
+router.post('/:id/sync-genuka', PMEController.syncGenukaData);
+
 export default router;
