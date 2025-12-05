@@ -1,0 +1,41 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "seed:categories": "node src/seeders/categorySeeder.js --run",
+    "seed:dev": "npm run seed:categories"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.0.0",
+    "multer": "^2.0.2",
+    "node-fetch": "^2.7.0",
+    "nodemailer": "^7.0.11",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.1",
+    "yup": "^1.7.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "cloudflared": "^0.7.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "morgan": "^1.10.1",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.7.4"
+  }
+}
