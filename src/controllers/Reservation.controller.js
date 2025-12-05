@@ -1,17 +1,9 @@
-/**
- * Contrôleur Reservation
- * Gère les réservations d'équipements
- */
-
 import Reservation from '../models/Reservation.model.js';
 import Equipement from '../models/Equipement.model.js';
 import PME from '../models/PME.model.js';
 import ResponseApi from '../helpers/response.js';
 import NotificationService from '../services/NotificationService.js';
 
-/**
- * Créer une réservation
- */
 export const createReservation = async (req, res) => {
   try {
     const { equipement, locataire, dateDebut, dateFin, adresseLivraison, notes, conditionsSpeciales } = req.body;
@@ -20,19 +12,16 @@ export const createReservation = async (req, res) => {
       return ResponseApi.error(res, 'Données manquantes', null, 400);
     }
 
-    // Vérifier que l'équipement existe
     const equip = await Equipement.findById(equipement);
     if (!equip) {
       return ResponseApi.error(res, 'Équipement non trouvé', null, 404);
     }
 
-    // Vérifier que le locataire existe
     const tenant = await PME.findById(locataire);
     if (!tenant) {
       return ResponseApi.error(res, 'Locataire non trouvé', null, 404);
     }
 
-    // Vérifier les dates
     const start = new Date(dateDebut);
     const end = new Date(dateFin);
     const now = new Date();
@@ -45,7 +34,6 @@ export const createReservation = async (req, res) => {
       return ResponseApi.error(res, 'La date de fin doit être après la date de début', null, 400);
     }
 
-    // Vérifier les conflits de réservation
     const conflictingReservations = await Reservation.findOne({
       equipement,
       statut: { $in: ['confirmee', 'en_cours', 'en_attente'] },
@@ -58,12 +46,10 @@ export const createReservation = async (req, res) => {
       return ResponseApi.error(res, 'Cet équipement n\'est pas disponible pour ces dates', null, 409);
     }
 
-    // Calculer le montant total
     const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
     const montantTotal = days * equip.prixParJour;
     const cautionMontant = equip.caution;
 
-    // Créer la réservation
     const reservation = await Reservation.create({
       equipement,
       locataire,
@@ -80,7 +66,6 @@ export const createReservation = async (req, res) => {
 
     await reservation.populate('equipement', 'nom prixParJour').populate('locataire', 'nom email');
 
-    // Notifier le propriétaire de l'équipement
     const proprietaire = await PME.findById(equip.proprietaire);
     if (proprietaire) {
       NotificationService.notifyUser(
@@ -92,7 +77,6 @@ export const createReservation = async (req, res) => {
       );
     }
 
-    // Notifier le locataire
     NotificationService.notifyUser(
       locataire,
       'Réservation Créée',
@@ -114,9 +98,6 @@ export const createReservation = async (req, res) => {
   }
 };
 
-/**
- * Récupérer toutes les réservations
- */
 export const getReservations = async (req, res) => {
   try {
     const { page = 1, limit = 10, statut, locataire, equipement } = req.query;
@@ -150,9 +131,6 @@ export const getReservations = async (req, res) => {
   }
 };
 
-/**
- * Récupérer une réservation par ID
- */
 export const getReservationById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -172,9 +150,6 @@ export const getReservationById = async (req, res) => {
   }
 };
 
-/**
- * Confirmer une réservation
- */
 export const confirmReservation = async (req, res) => {
   try {
     const { id } = req.params;

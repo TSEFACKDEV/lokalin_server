@@ -1,50 +1,36 @@
-/**
- * Contrôleur PME
- * Gère la création, mise à jour et récupération des PME
- */
-
 import PME from '../models/PME.model.js';
 import ResponseApi from '../helpers/response.js';
 import NotificationService from '../services/NotificationService.js';
 import GenukaService from '../services/GenukaService.js';
-import { logGenukaSynchronization, logTokenRefresh } from '../utils/genukaLogger.js';
 
-/**
- * Créer une PME avec Genuka
- */
 export const createPME = async (req, res) => {
   try {
     const { nom, email, genuka_id, genuka_access_token, genuka_refresh_token, genuka_token_expires_at, password } = req.body;
 
-    // Validation différente selon si c'est une PME Genuka ou locale
     if (genuka_id) {
-      // PME Genuka : nom et genuka_id requis
       if (!nom || !genuka_id) {
         return ResponseApi.error(res, 'Données manquantes pour PME Genuka', { nom, genuka_id }, 400);
       }
     } else {
-      // PME locale : nom, email et password requis
       if (!nom || !email || !password) {
         return ResponseApi.error(res, 'Données manquantes pour PME locale', { nom, email, password: !!password }, 400);
       }
     }
 
-    // Vérifier si la PME existe déjà
     const existingPME = await PME.findOne({ 
       $or: [
         { email: email },
         { genuka_id: genuka_id }
-      ].filter(condition => Object.values(condition)[0]) // Filtrer les valeurs nulles/undefined
+      ].filter(condition => Object.values(condition)[0])
     });
     
     if (existingPME) {
       return ResponseApi.error(res, 'Cette PME existe déjà', null, 409);
     }
 
-    // Créer la PME
     const pmeData = {
       nom,
-      isVerified: !!genuka_id, // Auto-vérifié si Genuka
+      isVerified: !!genuka_id,
       isActive: true
     };
 
@@ -61,7 +47,6 @@ export const createPME = async (req, res) => {
 
     const pme = await PME.create(pmeData);
 
-    // Notifier la création
     NotificationService.broadcastNotification(
       'Nouvelle PME',
       `La PME "${nom}" a rejoint la plateforme`,
@@ -76,9 +61,6 @@ export const createPME = async (req, res) => {
   }
 };
 
-/**
- * Récupérer toutes les PME
- */
 export const getPMEs = async (req, res) => {
   try {
     const { page = 1, limit = 10, isActive } = req.query;
@@ -111,9 +93,6 @@ export const getPMEs = async (req, res) => {
   }
 };
 
-/**
- * Récupérer une PME par ID
- */
 export const getPMEById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -133,25 +112,19 @@ export const getPMEById = async (req, res) => {
   }
 };
 
-/**
- * Mettre à jour une PME
- */
 export const updatePME = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    // Ajouter le logo si uploadé
     if (req.uploadedImageUrls && req.uploadedImageUrls.length > 0) {
       updates.logo = req.uploadedImageUrls[0];
     }
 
-    // Parser l'adresse si elle est en format JSON string
     if (updates.adresse && typeof updates.adresse === 'string') {
       updates.adresse = JSON.parse(updates.adresse);
     }
 
-    // Champs non modifiables
     delete updates.genuka_id;
     delete updates.password;
 
@@ -171,9 +144,6 @@ export const updatePME = async (req, res) => {
   }
 };
 
-/**
- * Supprimer une PME
- */
 export const deletePME = async (req, res) => {
   try {
     const { id } = req.params;
@@ -191,9 +161,6 @@ export const deletePME = async (req, res) => {
   }
 };
 
-/**
- * Récupérer les équipements d'une PME
- */
 export const getPMEEquipements = async (req, res) => {
   try {
     const { id } = req.params;

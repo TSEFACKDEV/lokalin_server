@@ -1,47 +1,26 @@
-/**
- * Service d'intégration avec l'API Genuka
- * Gère l'authentification, la récupération des données PME et synchronisation
- */
-
 import env from '../config/env.js';
 
-// Configuration des endpoints Genuka
-// IMPORTANT: Utilisez staging si votre app est enregistrée dans l'environnement staging de Genuka
-const IS_STAGING = true; // Changez à false si vous êtes en production
+const IS_STAGING = true;
 
 const GENUKA_API_BASE = IS_STAGING 
   ? 'https://api-staging.genuka.com/2023-11' 
   : 'https://api.genuka.com/2023-11';
 
-// OAuth endpoints - CONFIRMÉ par test: /oauth/token (SANS /2023-11)
 const GENUKA_OAUTH_TOKEN_URL = IS_STAGING
   ? 'https://api-staging.genuka.com/oauth/token'
   : 'https://api.genuka.com/oauth/token';
 
-// L'endpoint userinfo est sur l'API, pas sur platform/staging
 const GENUKA_OAUTH_USERINFO_URL = IS_STAGING
   ? 'https://api-staging.genuka.com/oauth/userinfo'
   : 'https://api.genuka.com/oauth/userinfo';
 
 class GenukaService {
-  /**
-   * Échange le code d'autorisation pour un token d'accès
-   * Documentation: https://docs.genuka.com/getting-started/authentication
-   */
   static async exchangeCodeForToken(code) {
     try {
       const clientId = env.genuka.clientId;
       const clientSecret = env.genuka.clientSecret;
       const redirectUri = env.genuka.callbackUrl;
 
-      console.log('🔄 Échange du code pour un token...');
-      console.log('  Endpoint:', GENUKA_OAUTH_TOKEN_URL);
-      console.log('  Client ID:', clientId ? clientId.substring(0, 8) + '...' : 'absent');
-      console.log('  Client Secret:', clientSecret ? clientSecret.substring(0, 8) + '...' : 'absent');
-      console.log('  Redirect URI from env:', redirectUri);
-      console.log('  Code length:', code ? code.length : 0);
-
-      // Utiliser form-urlencoded comme dans la doc Genuka
       const params = new URLSearchParams({
         grant_type: 'authorization_code',
         code,
@@ -58,8 +37,6 @@ class GenukaService {
         body: params.toString()
       });
 
-      console.log('[GenukaService] Response status:', response.status);
-
       const contentType = response.headers.get('content-type');
       let data;
       
@@ -67,16 +44,15 @@ class GenukaService {
         data = await response.json();
       } else {
         const text = await response.text();
-        console.error('[GenukaService] Received non-JSON response:', text.substring(0, 200));
+        console.error('Received non-JSON response:', text.substring(0, 200));
         throw new Error(`Expected JSON but received: ${contentType || 'unknown'}`);
       }
 
       if (!response.ok) {
-        console.error('[GenukaService] HTTP error:', response.status, data);
+        console.error('HTTP error:', response.status, data);
         throw new Error(`Erreur HTTP: ${response.status} - ${data.error || JSON.stringify(data)}`);
       }
 
-      console.log('[GenukaService] ✅ Token received successfully');
       return {
         success: true,
         access_token: data.access_token,
@@ -85,7 +61,7 @@ class GenukaService {
         token_type: data.token_type || 'Bearer'
       };
     } catch (error) {
-      console.error('[GenukaService] Token exchange error:', error.message);
+      console.error('Token exchange error:', error.message);
       return {
         success: false,
         error: error.message
@@ -93,13 +69,8 @@ class GenukaService {
     }
   }
 
-  /**
-   * Récupère les informations de l'utilisateur depuis Genuka
-   */
   static async getUserInfo(accessToken) {
     try {
-      console.debug('[GenukaService] Fetching user information');
-      
       const response = await fetch(GENUKA_OAUTH_USERINFO_URL, {
         method: 'GET',
         headers: {
@@ -113,7 +84,6 @@ class GenukaService {
       }
 
       const data = await response.json();
-      console.debug('[GenukaService] User information received');
       
       return {
         success: true,
@@ -126,7 +96,7 @@ class GenukaService {
         }
       };
     } catch (error) {
-      console.error('[GenukaService] Failed to fetch user information:', error.message);
+      console.error('Failed to fetch user information:', error.message);
       return {
         success: false,
         error: error.message
@@ -134,13 +104,8 @@ class GenukaService {
     }
   }
 
-  /**
-   * Rafraîchit le token d'accès expiré
-   */
   static async refreshAccessToken(refreshToken) {
     try {
-      console.log('🔄 Rafraîchissement du token...');
-      
       const clientId = process.env.GENUKA_CLIENT_ID;
       const clientSecret = process.env.GENUKA_CLIENT_SECRET;
 

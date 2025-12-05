@@ -6,12 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "tunnel": "cloudflared tunnel --url http://localhost:3000",
-    "seed:categories": "node src/seeders/categorySeeder.js --run",
-    "seed:dev": "npm run seed:categories",
-    "test:genuka": "node src/tests/genuka-integration.test.js",
-    "test:hmac": "node src/tests/test-hmac-real.js",
-    "test:oauth": "node src/tests/test-oauth-endpoints.js"
+    "seed:categories": "node src/seeders/categorySeeder.js --run"
   },
   "keywords": [],
   "author": "",

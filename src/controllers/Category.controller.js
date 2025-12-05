@@ -7,16 +7,14 @@ export const createCategory = async (req, res) => {
   try {
     const { nom, description, icone, isActive } = req.body;
 
-    // Vérifier si la catégorie existe déjà
     const existingCategory = await Category.findOne({
       nom: { $regex: new RegExp(`^${nom}$`, "i") },
     });
 
     if (existingCategory) {
-      return ResponseApi.error(res, "Cette catégorie existe déjà", null, 409); // 409 = Conflict
+      return ResponseApi.error(res, "Cette catégorie existe déjà", null, 409);
     }
 
-    // Créer la catégorie
     const category = await Category.create({
       nom,
       description: description || "",
@@ -24,7 +22,6 @@ export const createCategory = async (req, res) => {
       isActive: isActive !== undefined ? isActive : true,
     });
 
-    // Envoyer une notification de création de catégorie
     NotificationService.broadcastNotification(
       'Nouvelle Catégorie',
       `La catégorie "${nom}" a été créée avec succès`,
@@ -36,9 +33,7 @@ export const createCategory = async (req, res) => {
   } catch (error) {
     console.error("Erreur création catégorie:", error);
 
-    // Gestion spécifique des erreurs Mongoose
     if (error.code === 11000) {
-      // Erreur de duplication (unique constraint)
       return ResponseApi.error(
         res,
         "Cette catégorie existe déjà",
@@ -105,7 +100,6 @@ export const deleteCategory = async (req, res) => {
             return ResponseApi.notFound(res, "Catégorie non trouvée");
         }
         
-        // Envoyer une notification de suppression
         NotificationService.broadcastNotification(
           'Catégorie Supprimée',
           `La catégorie "${category.nom}" a été supprimée`,
@@ -129,13 +123,11 @@ export const updateCategory = async (req, res) => {
         const { id } = req.params;
         const { nom, description, icone, isActive } = req.body;
         
-        // Vérifier si la catégorie existe
         const category = await Category.findById(id);
         if (!category) {
             return ResponseApi.notFound(res, "Catégorie non trouvée");
         }
         
-        // Vérifier si le nouveau nom existe déjà (s'il est modifié)
         if (nom && nom !== category.nom) {
             const existingCategory = await Category.findOne({
                 nom: { $regex: new RegExp(`^${nom}$`, "i") },
@@ -147,7 +139,6 @@ export const updateCategory = async (req, res) => {
             }
         }
         
-        // Mettre à jour les champs
         const updatedCategory = await Category.findByIdAndUpdate(
             id,
             {
@@ -159,7 +150,6 @@ export const updateCategory = async (req, res) => {
             { new: true, runValidators: true }
         );
         
-        // Envoyer une notification de mise à jour
         NotificationService.broadcastNotification(
           'Catégorie Mise à Jour',
           `La catégorie "${category.nom}" a été renommée en "${updatedCategory.nom}"`,

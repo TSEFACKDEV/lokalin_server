@@ -1,75 +1,27 @@
-/**
- * Contrôleur Equipement
- * Gère l'ajout, la recherche et la gestion des équipements
- */
-
 import Equipement from '../models/Equipement.model.js';
 import PME from '../models/PME.model.js';
 import Category from '../models/Category.model.js';
 import ResponseApi from '../helpers/response.js';
 import NotificationService from '../services/NotificationService.js';
 
-/**
- * Créer un équipement
- */
 export const createEquipement = async (req, res) => {
   try {
     const { nom, description, categorie, prixParJour, caution, proprietaire, localisation, conditionsUtilisation } = req.body;
 
-    // DEBUG: Log de la requête complète
-    console.log('[Equipement Creation] ════════════════════════════════════════');
-    console.log('[Equipement Creation] Body reçu:', JSON.stringify(req.body, null, 2));
-    console.log('[Equipement Creation] ID Propriétaire reçu:', proprietaire);
-    console.log('[Equipement Creation] Fichiers uploadés:', req.files ? req.files.length : 0);
-    console.log('[Equipement Creation] URLs d\'images générées:', req.uploadedImageUrls);
-    
-    if (req.uploadedImageUrls && req.uploadedImageUrls.length > 0) {
-      console.log('[Equipement Creation] 📸 Détails des images:');
-      req.uploadedImageUrls.forEach((url, index) => {
-        console.log(`   ${index + 1}. ${url}`);
-      });
-    }
-    
-    // Validation des champs obligatoires
     if (!nom || !categorie || !prixParJour || !proprietaire) {
-      console.error('[Equipement Creation] Données manquantes:', { nom: !!nom, categorie: !!categorie, prixParJour: !!prixParJour, proprietaire: !!proprietaire });
       return ResponseApi.error(res, 'Données manquantes', { nom, categorie, prixParJour, proprietaire }, 400);
     }
 
-    // DEBUG: Vérifier toutes les PMEs disponibles
-    const allPmes = await PME.find({}).select('_id nom genuka_id email');
-    console.log('[Equipement Creation] PMEs disponibles dans la DB:', allPmes.length);
-    allPmes.forEach(pme => {
-      console.log(`  - PME: ${pme._id} | Nom: ${pme.nom} | Genuka ID: ${pme.genuka_id || 'N/A'} | Email: ${pme.email}`);
-    });
-
-    // Vérifier que la catégorie existe
     const categoryExists = await Category.findById(categorie);
     if (!categoryExists) {
-      console.error('[Equipement Creation] Catégorie non trouvée:', categorie);
       return ResponseApi.error(res, 'Catégorie non trouvée', null, 404);
     }
 
-    // Vérifier que le propriétaire (PME) existe
-    console.log('[Equipement Creation] Recherche PME avec ID:', proprietaire);
     const pmeExists = await PME.findById(proprietaire);
     if (!pmeExists) {
-      console.error('[Equipement Creation] ❌ PME NON TROUVÉE!');
-      console.error('[Equipement Creation] ID recherché:', proprietaire);
-      console.error('[Equipement Creation] Type de l\'ID:', typeof proprietaire);
-      console.error('[Equipement Creation] IDs disponibles:', allPmes.map(p => p._id.toString()));
-      
-      return ResponseApi.error(res, `PME propriétaire non trouvée. L'ID "${proprietaire}" n'existe pas dans la base de données.`, { 
-        proprietaire_recherche: proprietaire,
-        pmes_disponibles: allPmes.map(p => ({ id: p._id.toString(), nom: p.nom })),
-        total_pmes: allPmes.length,
-        suggestion: allPmes.length > 0 ? `Utilisez l'ID: ${allPmes[0]._id.toString()}` : 'Créez d\'abord une PME'
-      }, 404);
+      return ResponseApi.error(res, 'PME propriétaire non trouvée', null, 404);
     }
-    
-    console.log('[Equipement Creation] ✅ PME trouvée:', pmeExists.nom);
 
-    // Créer l'équipement
     const equipement = await Equipement.create({
       nom,
       description,
@@ -84,14 +36,12 @@ export const createEquipement = async (req, res) => {
       isActive: true
     });
 
-    // Ajouter l'équipement à la liste des équipements de la PME
     await PME.findByIdAndUpdate(
       proprietaire,
       { $push: { equipements: equipement._id } },
       { new: true }
     );
 
-    // Notifier toutes les PME de la disponibilité du nouvel équipement
     NotificationService.broadcastNotification(
       'Nouvel Équipement Disponible',
       `${nom} est maintenant disponible à la location - ${prixParJour}€/jour`,
@@ -112,36 +62,62 @@ export const createEquipement = async (req, res) => {
   }
 };
 
-/**
- * Récupérer tous les équipements avec filtrage et recherche
- */
 export const searchEquipements = async (req, res) => {
   try {
-    const { page = 1, limit = 10, categorie, disponibilite = 'disponible', search, prixMin, prixMax, localisation } = req.query;
+    const { 
+      page = 1, 
+      limit = 10, 
+      categorie, 
+      category,
+      disponibilite, 
+      availability,
+      search, 
+      prixMin, 
+      prixMax,
+      maxPrice,
+      minRating,
+      localisation,
+      pmeId,
+      sortBy = 'recent',
+      sortOrder = 'desc'
+    } = req.query;
 
     const filter = {
-      isActive: true,
-      disponibilite: disponibilite || 'disponible'
+      isActive: true
     };
 
-    // Filtrer par catégorie
-    if (categorie) {
-      filter.categorie = categorie;
+    const availabilityValue = disponibilite || availability;
+    if (availabilityValue) {
+      filter.disponibilite = availabilityValue;
     }
 
-    // Filtrer par prix
-    if (prixMin || prixMax) {
+    const categoryValue = categorie || category;
+    if (categoryValue) {
+      filter.categorie = categoryValue;
+    }
+
+    if (pmeId) {
+      filter.proprietaire = pmeId;
+    }
+
+    if (prixMin || prixMax || maxPrice) {
       filter.prixParJour = {};
       if (prixMin) filter.prixParJour.$gte = parseFloat(prixMin);
       if (prixMax) filter.prixParJour.$lte = parseFloat(prixMax);
+      if (maxPrice) filter.prixParJour.$lte = parseFloat(maxPrice);
     }
 
-    // Recherche textuelle
+    if (minRating) {
+      filter.noteMoyenne = { $gte: parseFloat(minRating) };
+    }
+
     if (search) {
-      filter.$text = { $search: search };
+      filter.$or = [
+        { nom: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
     }
 
-    // Filtrer par localisation
     if (localisation && localisation.coordinates) {
       const [longitude, latitude] = localisation.coordinates.split(',').map(parseFloat);
       filter['localisation.coordinates'] = {
@@ -150,19 +126,44 @@ export const searchEquipements = async (req, res) => {
             type: 'Point',
             coordinates: [longitude, latitude]
           },
-          $maxDistance: localisation.distance || 50000 // 50km par défaut
+          $maxDistance: localisation.distance || 50000
         }
       };
     }
 
-    const equipements = await Equipement.find(filter)
-      .populate('categorie', 'nom description')
-      .populate('proprietaire', 'nom email telephone')
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .sort({ noteMoyenne: -1, createdAt: -1 });
+    let sortOptions = {};
+    switch (sortBy) {
+      case 'price_asc':
+        sortOptions = { prixParJour: 1 };
+        break;
+      case 'price_desc':
+        sortOptions = { prixParJour: -1 };
+        break;
+      case 'rating':
+        sortOptions = { noteMoyenne: -1, nombreAvis: -1 };
+        break;
+      case 'popular':
+        sortOptions = { nombreReservations: -1, noteMoyenne: -1 };
+        break;
+      case 'name':
+        sortOptions = { nom: sortOrder === 'asc' ? 1 : -1 };
+        break;
+      case 'recent':
+      default:
+        sortOptions = { createdAt: -1 };
+        break;
+    }
 
-    const total = await Equipement.countDocuments(filter);
+    const [equipements, total] = await Promise.all([
+      Equipement.find(filter)
+        .populate('categorie', 'nom description icone')
+        .populate('proprietaire', 'nom email telephone logo')
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .sort(sortOptions)
+        .lean(),
+      Equipement.countDocuments(filter)
+    ]);
 
     ResponseApi.success(res, 'Équipements récupérés avec succès', {
       equipements,
@@ -179,9 +180,6 @@ export const searchEquipements = async (req, res) => {
   }
 };
 
-/**
- * Récupérer un équipement par ID
- */
 export const getEquipementById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -207,30 +205,23 @@ export const getEquipementById = async (req, res) => {
   }
 };
 
-/**
- * Mettre à jour un équipement
- */
 export const updateEquipement = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    // Ajouter les nouvelles images si uploadées
     if (req.uploadedImageUrls && req.uploadedImageUrls.length > 0) {
       const currentEquipement = await Equipement.findById(id);
       if (currentEquipement) {
-        // Fusionner les anciennes et nouvelles images (max 5)
         const allImages = [...currentEquipement.images, ...req.uploadedImageUrls];
         updates.images = allImages.slice(0, 5);
       }
     }
 
-    // Parser la localisation si elle est en format JSON string
     if (updates.localisation && typeof updates.localisation === 'string') {
       updates.localisation = JSON.parse(updates.localisation);
     }
 
-    // Champs non modifiables
     delete updates.proprietaire;
     delete updates.categorie;
 
@@ -250,9 +241,6 @@ export const updateEquipement = async (req, res) => {
   }
 };
 
-/**
- * Changer la disponibilité d'un équipement
- */
 export const updateAvailability = async (req, res) => {
   try {
     const { id } = req.params;
@@ -273,7 +261,6 @@ export const updateAvailability = async (req, res) => {
       return ResponseApi.notFound(res, 'Équipement non trouvé');
     }
 
-    // Notifier la PME propriétaire et autres PME
     if (disponibilite === 'disponible') {
       NotificationService.broadcastNotification(
         'Équipement Disponible',
@@ -290,9 +277,6 @@ export const updateAvailability = async (req, res) => {
   }
 };
 
-/**
- * Supprimer un équipement
- */
 export const deleteEquipement = async (req, res) => {
   try {
     const { id } = req.params;
@@ -303,7 +287,6 @@ export const deleteEquipement = async (req, res) => {
       return ResponseApi.notFound(res, 'Équipement non trouvé');
     }
 
-    // Retirer l'équipement de la liste des équipements de la PME
     await PME.findByIdAndUpdate(
       equipement.proprietaire,
       { $pull: { equipements: id } }
@@ -316,9 +299,6 @@ export const deleteEquipement = async (req, res) => {
   }
 };
 
-/**
- * Récupérer les disponibilités (calendrier) d'un équipement
- */
 export const getAvailability = async (req, res) => {
   try {
     const { id } = req.params;
@@ -337,7 +317,6 @@ export const getAvailability = async (req, res) => {
       return ResponseApi.notFound(res, 'Équipement non trouvé');
     }
 
-    // Créer un calendrier d'indisponibilité
     const unavailableDates = equipement.reservations.map(res => ({
       dateDebut: res.dateDebut,
       dateFin: res.dateFin,

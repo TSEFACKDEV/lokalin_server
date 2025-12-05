@@ -1,8 +1,3 @@
-/**
- * Contrôleur Avis
- * Gère les avis et commentaires sur les équipements
- */
-
 import Avis from '../models/Avis.model.js';
 import Equipement from '../models/Equipement.model.js';
 import Reservation from '../models/Reservation.model.js';
@@ -10,9 +5,6 @@ import PME from '../models/PME.model.js';
 import ResponseApi from '../helpers/response.js';
 import NotificationService from '../services/NotificationService.js';
 
-/**
- * Créer un avis
- */
 export const createAvis = async (req, res) => {
   try {
     const { note, commentaire, auteur, equipement, reservation } = req.body;
@@ -25,13 +17,11 @@ export const createAvis = async (req, res) => {
       return ResponseApi.error(res, 'La note doit être entre 1 et 5', null, 400);
     }
 
-    // Vérifier que l'équipement existe
     const equip = await Equipement.findById(equipement);
     if (!equip) {
       return ResponseApi.error(res, 'Équipement non trouvé', null, 404);
     }
 
-    // Vérifier que la réservation existe et appartient au locataire (auteur)
     const reservation_obj = await Reservation.findById(reservation);
     if (!reservation_obj) {
       return ResponseApi.error(res, 'Réservation non trouvée', null, 404);
@@ -45,13 +35,11 @@ export const createAvis = async (req, res) => {
       return ResponseApi.error(res, 'Vous ne pouvez évaluer que les réservations terminées', null, 400);
     }
 
-    // Vérifier qu'il n'y a pas déjà un avis pour cette réservation
     const existingAvis = await Avis.findOne({ reservation });
     if (existingAvis) {
       return ResponseApi.error(res, 'Un avis existe déjà pour cette réservation', null, 409);
     }
 
-    // Créer l'avis
     const avis = await Avis.create({
       note,
       commentaire,
@@ -64,7 +52,6 @@ export const createAvis = async (req, res) => {
 
     await avis.populate('auteur', 'nom email').populate('equipement', 'nom');
 
-    // Notifier le propriétaire de l'équipement
     NotificationService.notifyUser(
       equip.proprietaire.toString(),
       'Nouvel Avis',
@@ -73,7 +60,6 @@ export const createAvis = async (req, res) => {
       `/equipements/${equipement}/avis`
     );
 
-    // Broadcast notification pour les autres PME
     NotificationService.broadcastNotification(
       'Avis Disponible',
       `${equip.nom} a reçu un nouvel avis: ${note}⭐`,
@@ -94,9 +80,6 @@ export const createAvis = async (req, res) => {
   }
 };
 
-/**
- * Récupérer les avis d'un équipement
- */
 export const getEquipementAvis = async (req, res) => {
   try {
     const { equipement } = req.params;
@@ -119,7 +102,6 @@ export const getEquipementAvis = async (req, res) => {
 
     const total = await Avis.countDocuments(filter);
 
-    // Calculer les statistiques
     const stats = await Avis.aggregate([
       { $match: filter },
       {
@@ -162,9 +144,6 @@ export const getEquipementAvis = async (req, res) => {
   }
 };
 
-/**
- * Récupérer tous les avis
- */
 export const getAllAvis = async (req, res) => {
   try {
     const { page = 1, limit = 10, auteur, note } = req.query;
@@ -197,9 +176,6 @@ export const getAllAvis = async (req, res) => {
   }
 };
 
-/**
- * Récupérer un avis par ID
- */
 export const getAvisById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -220,9 +196,6 @@ export const getAvisById = async (req, res) => {
   }
 };
 
-/**
- * Ajouter une réponse du propriétaire à un avis
- */
 export const addOwnerResponse = async (req, res) => {
   try {
     const { id } = req.params;
@@ -238,7 +211,6 @@ export const addOwnerResponse = async (req, res) => {
       return ResponseApi.notFound(res, 'Avis non trouvé');
     }
 
-    // Vérifier que l'auteur est bien le propriétaire de l'équipement
     const equipement = await Equipement.findById(avis.equipement);
 
     avis.reponseProprietaire = {
@@ -249,7 +221,6 @@ export const addOwnerResponse = async (req, res) => {
     await avis.save();
     await avis.populate('auteur', 'nom email').populate('equipement', 'nom');
 
-    // Notifier l'auteur de l'avis
     NotificationService.notifyUser(
       avis.auteur._id.toString(),
       'Réponse du Propriétaire',
@@ -265,9 +236,6 @@ export const addOwnerResponse = async (req, res) => {
   }
 };
 
-/**
- * Supprimer un avis
- */
 export const deleteAvis = async (req, res) => {
   try {
     const { id } = req.params;
@@ -287,9 +255,6 @@ export const deleteAvis = async (req, res) => {
   }
 };
 
-/**
- * Récupérer les avis d'une PME (reçus sur ses équipements)
- */
 export const getPMEReceivedAvis = async (req, res) => {
   try {
     const { pmeId } = req.params;
@@ -330,9 +295,6 @@ export const getPMEReceivedAvis = async (req, res) => {
   }
 };
 
-/**
- * Récupérer les avis donnés par une PME
- */
 export const getPMEGivenAvis = async (req, res) => {
   try {
     const { pmeId } = req.params;

@@ -7,7 +7,6 @@ import equipementRouter from "./Equipement.route.js";
 import reservationRouter from "./Reservation.route.js";
 import avisRouter from "./Avis.route.js";
 import contactRouter from "./Contact.route.js";
-import debugRouter from "./Debug.route.js";
 
 const router = express.Router();
 
@@ -19,10 +18,5 @@ router.use("/equipements", equipementRouter);
 router.use("/reservations", reservationRouter);
 router.use("/avis", avisRouter);
 router.use("/contact", contactRouter);
-
-// Routes de debug (développement uniquement)
-if (process.env.NODE_ENV === 'development') {
-  router.use("/debug", debugRouter);
-}
 
 export default router;
