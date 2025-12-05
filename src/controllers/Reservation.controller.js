@@ -363,28 +363,52 @@ export const getPMEEquipementReservations = async (req, res) => {
     const { pmeId } = req.params;
     const { page = 1, limit = 10, statut } = req.query;
 
-    // Récupérer tous les équipements de la PME
-    const pme = await PME.findById(pmeId);
+    // Récupérer la PME avec ses équipements
+    const pme = await PME.findById(pmeId).select('nom email logo equipements');
     if (!pme) {
       return ResponseApi.notFound(res, 'PME non trouvée');
     }
 
+    // Récupérer les équipements de la PME
+    const equipements = await Equipement.find({ proprietaire: pmeId }).select('_id');
+    const equipementIds = equipements.map(e => e._id);
+
     const filter = {
-      equipement: { $in: pme.equipements },
+      equipement: { $in: equipementIds },
       ...(statut && { statut })
     };
 
     const reservations = await Reservation.find(filter)
-      .populate('equipement', 'nom prixParJour')
-      .populate('locataire', 'nom email')
+      .populate({
+        path: 'equipement',
+        select: 'nom prixParJour images categorie',
+        populate: { path: 'categorie', select: 'nom' }
+      })
+      .populate('locataire', 'nom email telephone logo')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
 
     const total = await Reservation.countDocuments(filter);
 
+    // Statistiques pour le dashboard
+    const stats = {
+      en_attente: await Reservation.countDocuments({ ...filter, statut: 'en_attente' }),
+      confirmee: await Reservation.countDocuments({ ...filter, statut: 'confirmee' }),
+      en_cours: await Reservation.countDocuments({ ...filter, statut: 'en_cours' }),
+      terminee: await Reservation.countDocuments({ ...filter, statut: 'terminee' }),
+      annulee: await Reservation.countDocuments({ ...filter, statut: 'annulee' })
+    };
+
     ResponseApi.success(res, 'Réservations des équipements de la PME récupérées', {
+      pme: {
+        _id: pme._id,
+        nom: pme.nom,
+        email: pme.email,
+        logo: pme.logo
+      },
       reservations,
+      stats,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

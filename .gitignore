@@ -33,3 +33,7 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+# Uploads (images uploadées par les utilisateurs)
+src/uploads/**/*
+!src/uploads/**/.gitkeep

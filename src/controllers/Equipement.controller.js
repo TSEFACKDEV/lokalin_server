@@ -14,12 +14,21 @@ import NotificationService from '../services/NotificationService.js';
  */
 export const createEquipement = async (req, res) => {
   try {
-    const { nom, description, categorie, prixParJour, caution, proprietaire, images, localisation, conditionsUtilisation } = req.body;
+    const { nom, description, categorie, prixParJour, caution, proprietaire, localisation, conditionsUtilisation } = req.body;
 
     // DEBUG: Log de la requête complète
     console.log('[Equipement Creation] ════════════════════════════════════════');
     console.log('[Equipement Creation] Body reçu:', JSON.stringify(req.body, null, 2));
     console.log('[Equipement Creation] ID Propriétaire reçu:', proprietaire);
+    console.log('[Equipement Creation] Fichiers uploadés:', req.files ? req.files.length : 0);
+    console.log('[Equipement Creation] URLs d\'images générées:', req.uploadedImageUrls);
+    
+    if (req.uploadedImageUrls && req.uploadedImageUrls.length > 0) {
+      console.log('[Equipement Creation] 📸 Détails des images:');
+      req.uploadedImageUrls.forEach((url, index) => {
+        console.log(`   ${index + 1}. ${url}`);
+      });
+    }
     
     // Validation des champs obligatoires
     if (!nom || !categorie || !prixParJour || !proprietaire) {
@@ -68,8 +77,8 @@ export const createEquipement = async (req, res) => {
       prixParJour,
       caution: caution || 0,
       proprietaire,
-      images: images || [],
-      localisation: localisation || {},
+      images: req.uploadedImageUrls || [],
+      localisation: localisation ? JSON.parse(localisation) : {},
       conditionsUtilisation,
       disponibilite: 'disponible',
       isActive: true
@@ -205,6 +214,21 @@ export const updateEquipement = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
+
+    // Ajouter les nouvelles images si uploadées
+    if (req.uploadedImageUrls && req.uploadedImageUrls.length > 0) {
+      const currentEquipement = await Equipement.findById(id);
+      if (currentEquipement) {
+        // Fusionner les anciennes et nouvelles images (max 5)
+        const allImages = [...currentEquipement.images, ...req.uploadedImageUrls];
+        updates.images = allImages.slice(0, 5);
+      }
+    }
+
+    // Parser la localisation si elle est en format JSON string
+    if (updates.localisation && typeof updates.localisation === 'string') {
+      updates.localisation = JSON.parse(updates.localisation);
+    }
 
     // Champs non modifiables
     delete updates.proprietaire;

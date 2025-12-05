@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import http from 'http';
+import fs from 'fs';
 import connectDB from './config/database.js';
 import env from './config/env.js';
 import router from './routes/index.js';
@@ -53,6 +54,23 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Servir les fichiers statiques (images uploadées)
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Configuration pour servir les fichiers uploads avec CORS
+const uploadsPath = path.join(__dirname, 'uploads');
+console.log('📁 Chemin des uploads:', uploadsPath);
+
+app.use('/uploads', (req, res, next) => {
+  // Ajouter les headers CORS pour les images
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(uploadsPath));
 
 // Routes
 
@@ -63,6 +81,33 @@ app.get('/api/v1/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0'
   });
+});
+
+// Route de test pour les uploads
+app.get('/api/v1/test-uploads', (req, res) => {
+  const uploadsPath = path.join(__dirname, 'uploads');
+  
+  try {
+    const equipementsPath = path.join(uploadsPath, 'equipements');
+    const files = fs.existsSync(equipementsPath) ? fs.readdirSync(equipementsPath) : [];
+    
+    res.json({
+      success: true,
+      uploadsPath,
+      equipementsPath,
+      filesCount: files.length,
+      files: files.slice(0, 10).map(file => ({
+        name: file,
+        url: `${req.protocol}://${req.get('host')}/uploads/equipements/${file}`
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      uploadsPath
+    });
+  }
 });
 
 //Routes principale de l'api lokalink

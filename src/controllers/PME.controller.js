@@ -141,6 +141,16 @@ export const updatePME = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
+    // Ajouter le logo si uploadé
+    if (req.uploadedImageUrls && req.uploadedImageUrls.length > 0) {
+      updates.logo = req.uploadedImageUrls[0];
+    }
+
+    // Parser l'adresse si elle est en format JSON string
+    if (updates.adresse && typeof updates.adresse === 'string') {
+      updates.adresse = JSON.parse(updates.adresse);
+    }
+
     // Champs non modifiables
     delete updates.genuka_id;
     delete updates.password;
@@ -362,6 +372,87 @@ export const syncGenukaData = async (req, res) => {
   }
 };
 
+/**
+ * Récupérer les statistiques du dashboard d'une PME
+ */
+export const getPMEDashboardStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const pme = await PME.findById(id).select('nom email logo description');
+    if (!pme) {
+      return ResponseApi.notFound(res, 'PME non trouvée');
+    }
+
+    // Importer dynamiquement pour éviter les dépendances circulaires
+    const Equipement = (await import('../models/Equipement.model.js')).default;
+    const Reservation = (await import('../models/Reservation.model.js')).default;
+
+    // Nombre d'équipements
+    const nombreEquipements = await Equipement.countDocuments({ proprietaire: id });
+
+    // Récupérer les IDs des équipements
+    const equipements = await Equipement.find({ proprietaire: id }).select('_id');
+    const equipementIds = equipements.map(e => e._id);
+
+    // Nombre de réservations reçues
+    const nombreReservations = await Reservation.countDocuments({ 
+      equipement: { $in: equipementIds } 
+    });
+
+    // Statistiques des réservations par statut
+    const reservationsParStatut = {
+      en_attente: await Reservation.countDocuments({ 
+        equipement: { $in: equipementIds }, 
+        statut: 'en_attente' 
+      }),
+      confirmee: await Reservation.countDocuments({ 
+        equipement: { $in: equipementIds }, 
+        statut: 'confirmee' 
+      }),
+      en_cours: await Reservation.countDocuments({ 
+        equipement: { $in: equipementIds }, 
+        statut: 'en_cours' 
+      }),
+      terminee: await Reservation.countDocuments({ 
+        equipement: { $in: equipementIds }, 
+        statut: 'terminee' 
+      }),
+      annulee: await Reservation.countDocuments({ 
+        equipement: { $in: equipementIds }, 
+        statut: 'annulee' 
+      })
+    };
+
+    // Revenus estimés (réservations confirmées ou terminées)
+    const reservationsPayees = await Reservation.find({
+      equipement: { $in: equipementIds },
+      statut: { $in: ['confirmee', 'en_cours', 'terminee'] }
+    }).select('montantTotal');
+
+    const revenusEstimes = reservationsPayees.reduce((sum, r) => sum + r.montantTotal, 0);
+
+    ResponseApi.success(res, 'Statistiques du dashboard récupérées', {
+      pme: {
+        _id: pme._id,
+        nom: pme.nom,
+        email: pme.email,
+        logo: pme.logo,
+        description: pme.description
+      },
+      stats: {
+        nombreEquipements,
+        nombreReservations,
+        reservationsParStatut,
+        revenusEstimes
+      }
+    });
+  } catch (error) {
+    console.error('Erreur récupération stats dashboard PME:', error);
+    ResponseApi.error(res, 'Échec de la récupération des statistiques', error.message);
+  }
+};
+
 export default {
   createPME,
   getPMEs,
@@ -370,5 +461,6 @@ export default {
   deletePME,
   getPMEEquipements,
   verifyAndRefreshToken,
-  syncGenukaData
+  syncGenukaData,
+  getPMEDashboardStats
 };

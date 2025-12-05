@@ -1,5 +1,6 @@
 import express from 'express';
 import * as EquipementController from '../controllers/Equipement.controller.js';
+import { uploadEquipementImages, processUploadedImages, handleMulterError } from '../utils/uploadFiles.js';
 
 const router = express.Router();
 
@@ -11,14 +12,14 @@ const router = express.Router();
 // GET - Rechercher les équipements avec filtrage
 router.get('/', EquipementController.searchEquipements);
 
-// POST - Créer un nouvel équipement
-router.post('/', EquipementController.createEquipement);
+// POST - Créer un nouvel équipement avec images
+router.post('/', uploadEquipementImages, handleMulterError, processUploadedImages, EquipementController.createEquipement);
 
 // GET - Récupérer un équipement par ID
 router.get('/:id', EquipementController.getEquipementById);
 
-// PUT - Mettre à jour un équipement
-router.put('/:id', EquipementController.updateEquipement);
+// PUT - Mettre à jour un équipement avec images
+router.put('/:id', uploadEquipementImages, handleMulterError, processUploadedImages, EquipementController.updateEquipement);
 
 // DELETE - Supprimer un équipement
 router.delete('/:id', EquipementController.deleteEquipement);
