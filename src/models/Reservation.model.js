@@ -16,9 +16,12 @@ const reservationSchema = new mongoose.Schema({
     required: [true, 'La date de début est requise'],
     validate: {
       validator: function(value) {
-        return value > new Date();
+        // Permettre les dates d'aujourd'hui ou futures
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return value >= today;
       },
-      message: 'La date de début doit être dans le futur'
+      message: 'La date de début doit être aujourd\'hui ou dans le futur'
     }
   },
   dateFin: {
@@ -91,22 +94,6 @@ reservationSchema.index({ equipement: 1, dateDebut: 1, dateFin: 1 });
 reservationSchema.index({ locataire: 1, statut: 1 });
 reservationSchema.index({ dateDebut: 1, dateFin: 1 });
 reservationSchema.index({ statut: 1, createdAt: -1 });
-
-// Validation pour éviter les doubles réservations
-reservationSchema.pre('save', async function(next) {
-  const existingReservation = await mongoose.models.Reservation.findOne({
-    equipement: this.equipement,
-    statut: { $in: ['confirmee', 'en_cours', 'en_attente'] },
-    $or: [
-      { dateDebut: { $lt: this.dateFin }, dateFin: { $gt: this.dateDebut } }
-    ]
-  });
-
-  if (existingReservation && existingReservation._id.toString() !== this._id.toString()) {
-    return next(new Error('L\'équipement est déjà réservé pour cette période'));
-  }
-  next();
-});
 
 // Middleware pour mettre à jour la disponibilité de l'équipement
 reservationSchema.post('save', async function(doc) {

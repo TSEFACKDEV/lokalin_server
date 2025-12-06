@@ -55,7 +55,9 @@ export const validateReservation = (data) => {
 export const validateAvis = (data) => {
   const errors = {};
 
-  if (!data.note || data.note < 1 || data.note > 5) {
+  if (!data.note) {
+    errors.note = 'La note est requise';
+  } else if (data.note < 1 || data.note > 5) {
     errors.note = 'La note doit être entre 1 et 5';
   }
 
@@ -71,9 +73,10 @@ export const validateAvis = (data) => {
     errors.equipement = 'L\'équipement est requis';
   }
 
-  if (!data.reservation) {
-    errors.reservation = 'La réservation est requise';
-  }
+  // La réservation n'est plus obligatoire dans la validation car le contrôleur la trouvera automatiquement
+  // if (!data.reservation) {
+  //   errors.reservation = 'La réservation est requise';
+  // }
 
   return Object.keys(errors).length === 0 ? { valid: true } : { valid: false, errors };
 };

@@ -7,10 +7,21 @@ import NotificationService from '../services/NotificationService.js';
 
 export const createAvis = async (req, res) => {
   try {
-    const { note, commentaire, auteur, equipement, reservation } = req.body;
+    let { note, commentaire, auteur, equipement, reservation } = req.body;
 
-    if (!note || !auteur || !equipement || !reservation) {
-      return ResponseApi.error(res, 'Données manquantes', null, 400);
+    // Validation des champs requis
+    const missingFields = [];
+    if (!note) missingFields.push('note');
+    if (!auteur) missingFields.push('auteur');
+    if (!equipement) missingFields.push('equipement');
+
+    if (missingFields.length > 0) {
+      return ResponseApi.error(
+        res,
+        `Données manquantes : ${missingFields.join(', ')}`,
+        null,
+        400
+      );
     }
 
     if (note < 1 || note > 5) {
@@ -22,22 +33,58 @@ export const createAvis = async (req, res) => {
       return ResponseApi.error(res, 'Équipement non trouvé', null, 404);
     }
 
-    const reservation_obj = await Reservation.findById(reservation);
-    if (!reservation_obj) {
-      return ResponseApi.error(res, 'Réservation non trouvée', null, 404);
-    }
+    // Si aucune réservation n'est fournie, chercher une réservation terminée pour cet équipement et cet auteur
+    let reservation_obj;
+    if (!reservation) {
+      reservation_obj = await Reservation.findOne({
+        equipement,
+        locataire: auteur,
+        statut: 'terminee'
+      }).sort({ dateFin: -1 }); // Prendre la plus récente
 
-    if (reservation_obj.locataire.toString() !== auteur) {
-      return ResponseApi.error(res, 'Vous ne pouvez évaluer que vos propres réservations', null, 403);
-    }
+      if (!reservation_obj) {
+        return ResponseApi.error(
+          res,
+          'Vous devez avoir réservé et utilisé cet équipement avant de pouvoir laisser un avis',
+          null,
+          403
+        );
+      }
 
-    if (reservation_obj.statut !== 'terminee') {
-      return ResponseApi.error(res, 'Vous ne pouvez évaluer que les réservations terminées', null, 400);
+      reservation = reservation_obj._id;
+    } else {
+      reservation_obj = await Reservation.findById(reservation);
+      if (!reservation_obj) {
+        return ResponseApi.error(res, 'Réservation non trouvée', null, 404);
+      }
+
+      if (reservation_obj.locataire.toString() !== auteur) {
+        return ResponseApi.error(
+          res,
+          'Vous ne pouvez évaluer que vos propres réservations',
+          null,
+          403
+        );
+      }
+
+      if (reservation_obj.statut !== 'terminee') {
+        return ResponseApi.error(
+          res,
+          'Vous ne pouvez évaluer que les réservations terminées. Cette réservation est actuellement en statut : ' + reservation_obj.statut,
+          null,
+          400
+        );
+      }
     }
 
     const existingAvis = await Avis.findOne({ reservation });
     if (existingAvis) {
-      return ResponseApi.error(res, 'Un avis existe déjà pour cette réservation', null, 409);
+      return ResponseApi.error(
+        res,
+        'Vous avez déjà laissé un avis pour cette réservation',
+        null,
+        409
+      );
     }
 
     const avis = await Avis.create({

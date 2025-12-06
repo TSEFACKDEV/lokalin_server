@@ -17,17 +17,55 @@ export const createReservation = async (req, res) => {
       return ResponseApi.error(res, 'Équipement non trouvé', null, 404);
     }
 
-    const tenant = await PME.findById(locataire);
-    if (!tenant) {
-      return ResponseApi.error(res, 'Locataire non trouvé', null, 404);
+    // Gérer le locataire: si c'est un ObjectId, on le cherche; sinon on crée/trouve la PME
+    let tenant;
+    let locataireId;
+
+    if (typeof locataire === 'string') {
+      // C'est un ObjectId
+      tenant = await PME.findById(locataire);
+      if (!tenant) {
+        return ResponseApi.error(res, 'Locataire non trouvé', null, 404);
+      }
+      locataireId = locataire;
+    } else if (typeof locataire === 'object' && locataire.email) {
+      // C'est un objet avec les données du locataire
+      // Chercher si une PME existe déjà avec cet email
+      try {
+        tenant = await PME.findOne({ email: locataire.email });
+      } catch (error) {
+        console.error('Erreur lors de la recherche de PME:', error);
+        tenant = null;
+      }
+      
+      if (!tenant) {
+        // Créer une nouvelle PME invitée (sans authentification)
+        try {
+          tenant = await PME.create({
+            nom: locataire.nom,
+            email: locataire.email,
+            telephone: locataire.telephone,
+            password: Math.random().toString(36).slice(-8), // mot de passe temporaire
+            isVerified: false
+          });
+          console.log('PME créée avec succès:', tenant._id);
+        } catch (error) {
+          console.error('Erreur création PME:', error);
+          return ResponseApi.error(res, 'Erreur lors de la création du compte locataire', error.message, 500);
+        }
+      }
+      locataireId = tenant._id.toString();
+    } else {
+      return ResponseApi.error(res, 'Format de locataire invalide', null, 400);
     }
 
     const start = new Date(dateDebut);
     const end = new Date(dateFin);
-    const now = new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    if (start <= now) {
-      return ResponseApi.error(res, 'La date de début doit être dans le futur', null, 400);
+    if (start < today) {
+      return ResponseApi.error(res, 'La date de début doit être aujourd\'hui ou dans le futur', null, 400);
     }
 
     if (end <= start) {
@@ -52,7 +90,7 @@ export const createReservation = async (req, res) => {
 
     const reservation = await Reservation.create({
       equipement,
-      locataire,
+      locataire: locataireId,
       dateDebut: start,
       dateFin: end,
       adresseLivraison,
@@ -64,7 +102,10 @@ export const createReservation = async (req, res) => {
       paiementStatut: 'en_attente'
     });
 
-    await reservation.populate('equipement', 'nom prixParJour').populate('locataire', 'nom email');
+    await reservation.populate([
+      { path: 'equipement', select: 'nom prixParJour' },
+      { path: 'locataire', select: 'nom email' }
+    ]);
 
     const proprietaire = await PME.findById(equip.proprietaire);
     if (proprietaire) {
@@ -78,7 +119,7 @@ export const createReservation = async (req, res) => {
     }
 
     NotificationService.notifyUser(
-      locataire,
+      locataireId,
       'Réservation Créée',
       `Votre réservation de ${equip.nom} a été créée`,
       'success',
@@ -108,7 +149,14 @@ export const getReservations = async (req, res) => {
     if (equipement) filter.equipement = equipement;
 
     const reservations = await Reservation.find(filter)
-      .populate('equipement', 'nom prixParJour')
+      .populate({
+        path: 'equipement',
+        select: 'nom prixParJour proprietaire',
+        populate: {
+          path: 'proprietaire',
+          select: 'nom email'
+        }
+      })
       .populate('locataire', 'nom email telephone')
       .limit(limit * 1)
       .skip((page - 1) * limit)
